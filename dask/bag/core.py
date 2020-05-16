@@ -56,6 +56,7 @@ from ..utils import (
     ensure_bytes,
     ensure_unicode,
     key_split,
+    parse_bytes,
 )
 from . import chunk
 
@@ -1566,18 +1567,38 @@ class Bag(DaskMethodsMixin):
             dsk = self.__dask_optimize__(dsk, keys)
         return [Delayed(k, dsk) for k in keys]
 
-    def repartition(self, npartitions):
+    def repartition(self, npartitions=None, partition_size=None):
         """ Changes the number of partitions of the bag.
 
         This can be used to reduce or increase the number of partitions
-        of the bag.
+        of the bag. If partition_size is set, npartitions is ignored.
+        If none of two parameters is set, no action will be performed.
+
+        Parameters
+        ----------
+        npartitions : int, optional
+            Number of partitions of output. Must be set if partition_size
+            isn't specified.
+        partition_size : str, optional
+            Maximum total size per partition. Use string like 100MB.
+            If set, npartitions will be ignored.
+
+            .. warning::
+
+               This keyword argument triggers computation to determine
+               the memory size of each partition, which may be expensive.
 
         Examples
         --------
-        >>> b.repartition(5)  # set to have 5 partitions  # doctest: +SKIP
+        >>> b.repartition(npartitions=5)  # set to have 5 partitions  # doctest: +SKIP
+        >>> b.repartition(partition_size="100MB") # each partition will be at most 100MB # doctest: +SKIP
+        >>> b.repartition() # this does nothing # doctest: +SKIP
         """
+        if partition_size is not None:
+            return repartition_with_size(self, partition_size)
+
         new_name = "repartition-%d-%s" % (npartitions, tokenize(self, npartitions))
-        if npartitions == self.npartitions:
+        if npartitions is None or npartitions == self.npartitions:
             return self
         elif npartitions < self.npartitions:
             ratio = self.npartitions / npartitions
@@ -1658,6 +1679,25 @@ class Bag(DaskMethodsMixin):
             dsk[(c, i)] = (second, (a, i))
         graph = HighLevelGraph.from_collections(b, dsk, dependencies=[self])
         return Bag(graph, b, self.npartitions)
+
+
+def repartition_with_size(bag, size):
+    """ Repartion a bag so that new partitions will have at most `size` usage each
+    """
+    if isinstance(size, str):
+        size = parse_bytes(size)
+    size = int(size)
+
+    new_name = "repartition-with-size-%d-%s" % (size, tokenize(bag, size))
+    current_usage = bag.map_partitions(total_mem_usage, deep=True).compute()
+    npartitions = len(current_usage)
+    dsk = {}
+    graph = HighLevelGraph.from_collections(new_name, dsk, dependencies=[bag])
+    return Bag(graph, name=new_name, npartitions=npartitions)
+
+
+def total_mem_usage():
+    return 0
 
 
 def accumulate_part(binop, seq, initial, is_first=False):
