@@ -4,6 +4,7 @@ import math
 import operator
 import uuid
 import warnings
+import sys
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from functools import wraps, partial, reduce
@@ -1696,8 +1697,8 @@ def repartition_with_size(bag, size):
     return Bag(graph, name=new_name, npartitions=npartitions)
 
 
-def total_mem_usage():
-    return 0
+def total_mem_usage(iter):
+    return [sum([sys.getsizeof(item) for item in iter])]
 
 
 def accumulate_part(binop, seq, initial, is_first=False):

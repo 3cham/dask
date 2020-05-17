@@ -26,6 +26,7 @@ from dask.bag.core import (
     inline_singleton_lists,
     optimize,
     from_delayed,
+    total_mem_usage,
 )
 from dask.bag.utils import assert_eq
 from dask.delayed import Delayed
@@ -1492,3 +1493,18 @@ def test_bagged_array_delayed():
     bag = db.from_delayed(obj)
     b = bag.compute()
     assert_eq(b, [1.0, 1.0, 1.0, 1.0, 1.0])
+
+
+def test_total_mem_usage():
+    import sys
+
+    elem = [1, 2, 3]
+    total_size = total_mem_usage(elem)
+    assert_eq(len(total_size), 1)
+    assert_eq(total_size[0], len(elem) * sys.getsizeof(1))
+
+    a = db.from_sequence(elem).repartition(npartitions=len(elem))
+    a_size = a.map_partitions(total_mem_usage).compute()
+    assert_eq(len(a_size), a.npartitions)
+    for item in range(len(elem)):
+        assert_eq(a_size[item], sys.getsizeof(elem[item]))
